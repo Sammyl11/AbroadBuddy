@@ -80,3 +80,4 @@ The built files will be in the `dist` directory.
 
 MIT
 
+# Updated repository connection
