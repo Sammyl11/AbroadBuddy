@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Budget, Trip } from '../types';
+import { Budget, Trip, WishlistItem } from '../types';
 import { storage } from '../utils/localStorage';
 import { 
   format, 
@@ -18,18 +18,21 @@ import {
   isBefore,
   isToday
 } from 'date-fns';
-import { ChevronLeft, ChevronRight, DollarSign } from 'lucide-react';
+import { ChevronLeft, ChevronRight, DollarSign, Heart } from 'lucide-react';
 
 export default function CalendarView() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [budget, setBudget] = useState<Budget | null>(null);
   const [trips, setTrips] = useState<Trip[]>([]);
+  const [wishlist, setWishlist] = useState<WishlistItem[]>([]);
   const [showDailyBudget, setShowDailyBudget] = useState(false);
+  const [includeWishlist, setIncludeWishlist] = useState(false);
 
   useEffect(() => {
     const loadData = () => {
       setBudget(storage.getBudget());
       setTrips(storage.getTrips());
+      setWishlist(storage.getWishlist());
     };
     loadData();
     
@@ -47,7 +50,15 @@ export default function CalendarView() {
 
   const budgetStart = parseISO(budget.startDate);
   const budgetEnd = parseISO(budget.endDate);
-  const remainingBudget = budget.semesterBudget - budget.spent;
+  
+  // Calculate wishlist total cost
+  const wishlistTotal = wishlist.reduce((sum, item) => sum + item.estimatedCost, 0);
+  
+  // Calculate remaining budget with/without wishlist
+  const totalSpent = budget.spent;
+  const totalSpentWithWishlist = totalSpent + wishlistTotal;
+  const remainingBudget = budget.semesterBudget - totalSpent;
+  const remainingBudgetWithWishlist = budget.semesterBudget - totalSpentWithWishlist;
 
   // Calculate remaining days in the budget period
   const today = startOfDay(new Date());
@@ -66,6 +77,7 @@ export default function CalendarView() {
 
   // Calculate daily budget: divide remaining budget evenly across remaining days
   const dailyBudget = remainingBudget / remainingDays;
+  const dailyBudgetWithWishlist = remainingBudgetWithWishlist / remainingDays;
 
   // Get all days in the current month view
   const monthStart = startOfMonth(currentDate);
@@ -204,7 +216,7 @@ export default function CalendarView() {
                 </div>
                 {showDailyBudget && inBudgetPeriod && !trip && isFutureDay && (
                   <div className="mt-auto text-xs text-green-400 font-medium">
-                    ${dailyBudget.toFixed(0)}
+                    ${(includeWishlist ? dailyBudgetWithWishlist : dailyBudget).toFixed(0)}
                   </div>
                 )}
                 {trip && (
@@ -224,8 +236,13 @@ export default function CalendarView() {
           <div className="bg-slate-700 rounded-lg p-4">
             <div className="text-sm text-gray-400 mb-1">Remaining Budget</div>
             <div className="text-2xl font-bold text-white">
-              ${remainingBudget.toFixed(2)}
+              ${(includeWishlist ? remainingBudgetWithWishlist : remainingBudget).toFixed(2)}
             </div>
+            {includeWishlist && wishlistTotal > 0 && (
+              <div className="text-xs text-gray-400 mt-1">
+                Without wishlist: ${remainingBudget.toFixed(2)}
+              </div>
+            )}
           </div>
           <div className="bg-slate-700 rounded-lg p-4">
             <div className="text-sm text-gray-400 mb-1">Remaining Days</div>
@@ -234,10 +251,33 @@ export default function CalendarView() {
             </div>
           </div>
           <div className="bg-slate-700 rounded-lg p-4">
-            <div className="text-sm text-gray-400 mb-1">Daily Budget</div>
-            <div className="text-2xl font-bold text-green-400">
-              ${dailyBudget.toFixed(2)}
+            <div className="flex items-center justify-between mb-1">
+              <div className="text-sm text-gray-400">Daily Budget</div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeWishlist}
+                  onChange={(e) => setIncludeWishlist(e.target.checked)}
+                  className="w-4 h-4 text-primary-600 bg-slate-600 border-slate-500 rounded focus:ring-primary-500"
+                />
+                <span className="text-xs text-gray-300 flex items-center gap-1">
+                  <Heart className="w-3 h-3" />
+                  Include Wishlist
+                </span>
+              </label>
             </div>
+            <div className={`text-2xl font-bold ${
+              (includeWishlist ? dailyBudgetWithWishlist : dailyBudget) >= 0 
+                ? 'text-green-400' 
+                : 'text-red-400'
+            }`}>
+              ${(includeWishlist ? dailyBudgetWithWishlist : dailyBudget).toFixed(2)}
+            </div>
+            {includeWishlist && wishlistTotal > 0 && (
+              <div className="text-xs text-gray-400 mt-1">
+                Without wishlist: ${dailyBudget.toFixed(2)}
+              </div>
+            )}
           </div>
         </div>
       </div>

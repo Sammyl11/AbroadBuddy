@@ -1,19 +1,17 @@
 import { useState } from 'react';
-import { LayoutDashboard, DollarSign, Calendar, Heart, CalendarDays } from 'lucide-react';
-import BudgetManager from './components/BudgetManager';
+import { LayoutDashboard, Calendar, Heart, CalendarDays } from 'lucide-react';
 import TripCalendar from './components/TripCalendar';
 import Wishlist from './components/Wishlist';
 import Dashboard from './components/Dashboard';
 import CalendarView from './components/CalendarView';
 
-type Tab = 'dashboard' | 'budget' | 'trips' | 'wishlist' | 'calendar';
+type Tab = 'dashboard' | 'trips' | 'wishlist' | 'calendar';
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
 
   const tabs = [
     { id: 'dashboard' as Tab, label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'budget' as Tab, label: 'Budget', icon: DollarSign },
     { id: 'trips' as Tab, label: 'Trips', icon: Calendar },
     { id: 'calendar' as Tab, label: 'Calendar', icon: CalendarDays },
     { id: 'wishlist' as Tab, label: 'Wishlist', icon: Heart },
@@ -57,7 +55,6 @@ function App() {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {activeTab === 'dashboard' && <Dashboard />}
-        {activeTab === 'budget' && <BudgetManager />}
         {activeTab === 'trips' && <TripCalendar />}
         {activeTab === 'calendar' && <CalendarView />}
         {activeTab === 'wishlist' && <Wishlist />}
