@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Trip } from '../types';
-import { storage } from '../utils/localStorage';
+import { storage } from '../utils/supabaseStorage';
+import { useData } from '../contexts/DataContext';
 import { Plus, Calendar as CalendarIcon, MapPin, DollarSign, Edit2, Trash2 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 
 export default function TripCalendar() {
-  const [trips, setTrips] = useState<Trip[]>([]);
+  const { trips, loading, refreshData } = useData();
   const [showModal, setShowModal] = useState(false);
   const [editingTrip, setEditingTrip] = useState<Trip | null>(null);
   const [formData, setFormData] = useState({
@@ -13,14 +14,10 @@ export default function TripCalendar() {
     destination: '',
     startDate: '',
     endDate: '',
-    estimatedCost: '',
-    actualCost: '',
+    prepaidCost: '',
+    plannedCost: '',
     notes: '',
   });
-
-  useEffect(() => {
-    setTrips(storage.getTrips());
-  }, []);
 
   const handleOpenModal = (trip?: Trip) => {
     if (trip) {
@@ -30,8 +27,8 @@ export default function TripCalendar() {
         destination: trip.destination,
         startDate: trip.startDate,
         endDate: trip.endDate,
-        estimatedCost: trip.estimatedCost.toString(),
-        actualCost: trip.actualCost?.toString() || '',
+        prepaidCost: trip.prepaidCost.toString(),
+        plannedCost: trip.plannedCost.toString(),
         notes: trip.notes || '',
       });
     } else {
@@ -41,8 +38,8 @@ export default function TripCalendar() {
         destination: '',
         startDate: '',
         endDate: '',
-        estimatedCost: '',
-        actualCost: '',
+        prepaidCost: '0',
+        plannedCost: '',
         notes: '',
       });
     }
@@ -54,62 +51,70 @@ export default function TripCalendar() {
     setEditingTrip(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const trip: Trip = {
-      id: editingTrip?.id || Date.now().toString(),
-      name: formData.name,
-      destination: formData.destination,
-      startDate: formData.startDate,
-      endDate: formData.endDate,
-      estimatedCost: parseFloat(formData.estimatedCost),
-      actualCost: formData.actualCost ? parseFloat(formData.actualCost) : undefined,
-      notes: formData.notes || undefined,
-    };
+    try {
+      const prepaid = parseFloat(formData.prepaidCost) || 0;
+      const planned = parseFloat(formData.plannedCost) || 0;
+      
+      const trip: Trip = {
+        id: editingTrip?.id || crypto.randomUUID(),
+        name: formData.name,
+        destination: formData.destination,
+        startDate: formData.startDate,
+        endDate: formData.endDate,
+        prepaidCost: prepaid,
+        plannedCost: planned,
+        notes: formData.notes || undefined,
+      };
 
-    if (editingTrip) {
-      storage.updateTrip(editingTrip.id, trip);
-    } else {
-      storage.addTrip(trip);
+      if (editingTrip) {
+        await storage.updateTrip(editingTrip.id, trip);
+      } else {
+        await storage.addTrip(trip);
+      }
+
+      // Refresh all data to update trips and budget
+      await refreshData();
+
+      handleCloseModal();
+    } catch (error: any) {
+      alert('Error saving trip: ' + (error.message || 'Unknown error'));
     }
-
-    setTrips(storage.getTrips());
-    
-    // Update budget spent amount
-    const budget = storage.getBudget();
-    if (budget) {
-      const totalSpent = storage.calculateTotalSpent();
-      storage.saveBudget({ ...budget, spent: totalSpent });
-    }
-
-    handleCloseModal();
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm('Are you sure you want to delete this trip?')) {
-      storage.deleteTrip(id);
-      setTrips(storage.getTrips());
-      
-      // Update budget spent amount
-      const budget = storage.getBudget();
-      if (budget) {
-        const totalSpent = storage.calculateTotalSpent();
-        storage.saveBudget({ ...budget, spent: totalSpent });
+      try {
+        await storage.deleteTrip(id);
+        
+        // Refresh all data to update trips and budget
+        await refreshData();
+      } catch (error: any) {
+        alert('Error deleting trip: ' + (error.message || 'Unknown error'));
       }
     }
   };
 
+  if (loading) {
+    return (
+      <div className="bg-slate-800 rounded-lg p-6 shadow-lg text-center">
+        <p className="text-gray-400">Loading trips...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-slate-800 rounded-lg p-6 shadow-lg">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
         <h2 className="text-2xl font-bold text-white flex items-center gap-2">
           <CalendarIcon className="w-6 h-6 text-primary-400" />
           Planned Trips
         </h2>
         <button
           onClick={() => handleOpenModal()}
-          className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors flex items-center gap-2"
+          className="w-full sm:w-auto px-3 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors flex items-center justify-center gap-2 text-sm"
         >
           <Plus className="w-4 h-4" />
           Add Trip
@@ -143,16 +148,24 @@ export default function TripCalendar() {
                         {format(parseISO(trip.endDate), 'MMM d, yyyy')}
                       </span>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <DollarSign className="w-4 h-4" />
-                      <span>
-                        Estimated: ${trip.estimatedCost.toLocaleString()}
-                        {trip.actualCost && (
-                          <span className="ml-2">
-                            | Actual: ${trip.actualCost.toLocaleString()}
+                    <div className="flex items-start gap-2">
+                      <DollarSign className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                      <div className="flex flex-wrap items-center gap-x-2">
+                        {trip.prepaidCost > 0 && (
+                          <span className="text-green-400">
+                            Prepaid: ${trip.prepaidCost.toLocaleString()}
                           </span>
                         )}
-                      </span>
+                        {trip.prepaidCost > 0 && trip.plannedCost > 0 && <span>|</span>}
+                        {trip.plannedCost > 0 && (
+                          <span className="text-yellow-400">
+                            Planned: ${trip.plannedCost.toLocaleString()}
+                          </span>
+                        )}
+                        <span className="text-gray-400">
+                          (Total: ${(trip.prepaidCost + trip.plannedCost).toLocaleString()})
+                        </span>
+                      </div>
                     </div>
                     {trip.notes && (
                       <p className="text-gray-400 mt-2">{trip.notes}</p>
@@ -239,28 +252,34 @@ export default function TripCalendar() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Estimated Cost ($)
+                    Already Paid ($)
                   </label>
                   <input
                     type="number"
                     step="0.01"
-                    value={formData.estimatedCost}
-                    onChange={(e) => setFormData({ ...formData, estimatedCost: e.target.value })}
+                    min="0"
+                    value={formData.prepaidCost}
+                    onChange={(e) => setFormData({ ...formData, prepaidCost: e.target.value })}
                     className="w-full px-4 py-2 bg-slate-700 text-white rounded-lg border border-slate-600 focus:border-primary-500 focus:outline-none"
-                    required
+                    placeholder="0"
                   />
+                  <p className="text-xs text-gray-500 mt-1">Money already spent on this trip</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Actual Cost ($)
+                    Plan to Spend ($)
                   </label>
                   <input
                     type="number"
                     step="0.01"
-                    value={formData.actualCost}
-                    onChange={(e) => setFormData({ ...formData, actualCost: e.target.value })}
+                    min="0"
+                    value={formData.plannedCost}
+                    onChange={(e) => setFormData({ ...formData, plannedCost: e.target.value })}
                     className="w-full px-4 py-2 bg-slate-700 text-white rounded-lg border border-slate-600 focus:border-primary-500 focus:outline-none"
+                    placeholder="0"
+                    required
                   />
+                  <p className="text-xs text-gray-500 mt-1">Money you still plan to spend</p>
                 </div>
               </div>
               <div>

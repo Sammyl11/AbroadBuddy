@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { Budget, WishlistItem } from '../types';
-import { storage } from '../utils/localStorage';
+import { storage } from '../utils/supabaseStorage';
 import { DollarSign, Calendar, TrendingUp, Heart } from 'lucide-react';
 
 export default function BudgetManager() {
   const [budget, setBudget] = useState<Budget | null>(null);
   const [wishlist, setWishlist] = useState<WishlistItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [semesterBudget, setSemesterBudget] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -13,50 +14,59 @@ export default function BudgetManager() {
   const [includeWishlist, setIncludeWishlist] = useState(false);
 
   useEffect(() => {
-    const savedBudget = storage.getBudget();
-    const savedWishlist = storage.getWishlist();
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const [savedBudget, savedWishlist] = await Promise.all([
+          storage.getBudget(),
+          storage.getWishlist(),
+        ]);
+        
+        if (savedBudget) {
+          // Recalculate spent amount to ensure accuracy
+          const totalSpent = await storage.calculateTotalSpent();
+          const updatedBudget = { ...savedBudget, spent: totalSpent };
+          await storage.saveBudget(updatedBudget);
+          
+          setBudget(updatedBudget);
+          setSemesterBudget(updatedBudget.semesterBudget.toString());
+          setStartDate(updatedBudget.startDate);
+          setEndDate(updatedBudget.endDate);
+        } else {
+          setIsEditing(true);
+        }
+        
+        setWishlist(savedWishlist);
+      } catch (error) {
+        console.error('Error loading data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
     
-    if (savedBudget) {
-      // Recalculate spent amount to ensure accuracy
-      const totalSpent = storage.calculateTotalSpent();
-      const updatedBudget = { ...savedBudget, spent: totalSpent };
-      storage.saveBudget(updatedBudget);
-      
-      setBudget(updatedBudget);
-      setSemesterBudget(updatedBudget.semesterBudget.toString());
-      setStartDate(updatedBudget.startDate);
-      setEndDate(updatedBudget.endDate);
-    } else {
-      setIsEditing(true);
-    }
-    
-    setWishlist(savedWishlist);
-    
-    // Reload data periodically
-    const interval = setInterval(() => {
-      const updatedWishlist = storage.getWishlist();
-      setWishlist(updatedWishlist);
-    }, 1000);
-    
-    return () => clearInterval(interval);
+    loadData();
   }, []);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!semesterBudget || !startDate || !endDate) {
       alert('Please fill in all fields');
       return;
     }
 
-    const newBudget: Budget = {
-      semesterBudget: parseFloat(semesterBudget),
-      startDate,
-      endDate,
-      spent: budget?.spent || 0,
-    };
+    try {
+      const newBudget: Budget = {
+        semesterBudget: parseFloat(semesterBudget),
+        startDate,
+        endDate,
+        spent: budget?.spent || 0,
+      };
 
-    storage.saveBudget(newBudget);
-    setBudget(newBudget);
-    setIsEditing(false);
+      await storage.saveBudget(newBudget);
+      setBudget(newBudget);
+      setIsEditing(false);
+    } catch (error: any) {
+      alert('Error saving budget: ' + (error.message || 'Unknown error'));
+    }
   };
 
   const handleCancel = () => {

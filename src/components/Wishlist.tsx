@@ -1,23 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { WishlistItem } from '../types';
-import { storage } from '../utils/localStorage';
-import { Heart, Plus, MapPin, DollarSign, Star, Edit2, Trash2 } from 'lucide-react';
+import { storage } from '../utils/supabaseStorage';
+import { useData } from '../contexts/DataContext';
+import { Heart, Plus, MapPin, DollarSign, Edit2, Trash2, X } from 'lucide-react';
 
 export default function Wishlist() {
-  const [items, setItems] = useState<WishlistItem[]>([]);
+  const { wishlist: items, loading, refreshData } = useData();
   const [showModal, setShowModal] = useState(false);
   const [editingItem, setEditingItem] = useState<WishlistItem | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     location: '',
     estimatedCost: '',
-    priority: 'medium' as 'high' | 'medium' | 'low',
     notes: '',
   });
-
-  useEffect(() => {
-    setItems(storage.getWishlist());
-  }, []);
 
   const handleOpenModal = (item?: WishlistItem) => {
     if (item) {
@@ -26,7 +22,6 @@ export default function Wishlist() {
         name: item.name,
         location: item.location,
         estimatedCost: item.estimatedCost.toString(),
-        priority: item.priority,
         notes: item.notes || '',
       });
     } else {
@@ -35,7 +30,6 @@ export default function Wishlist() {
         name: '',
         location: '',
         estimatedCost: '',
-        priority: 'medium',
         notes: '',
       });
     }
@@ -47,63 +41,64 @@ export default function Wishlist() {
     setEditingItem(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const item: WishlistItem = {
-      id: editingItem?.id || Date.now().toString(),
-      name: formData.name,
-      location: formData.location,
-      estimatedCost: parseFloat(formData.estimatedCost),
-      priority: formData.priority,
-      notes: formData.notes || undefined,
-    };
+    try {
+      const item: WishlistItem = {
+        id: editingItem?.id || crypto.randomUUID(),
+        name: formData.name,
+        location: formData.location,
+        estimatedCost: parseFloat(formData.estimatedCost),
+        priority: editingItem?.priority || 'medium', // Keep existing or default to medium
+        notes: formData.notes || undefined,
+      };
 
-    if (editingItem) {
-      storage.updateWishlistItem(editingItem.id, item);
-    } else {
-      storage.addWishlistItem(item);
+      if (editingItem) {
+        await storage.updateWishlistItem(editingItem.id, item);
+      } else {
+        await storage.addWishlistItem(item);
+      }
+
+      await refreshData();
+      handleCloseModal();
+    } catch (error: any) {
+      alert('Error saving wishlist item: ' + (error.message || 'Unknown error'));
     }
-
-    setItems(storage.getWishlist());
-    handleCloseModal();
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm('Are you sure you want to remove this from your wishlist?')) {
-      storage.deleteWishlistItem(id);
-      setItems(storage.getWishlist());
+      try {
+        await storage.deleteWishlistItem(id);
+        await refreshData();
+      } catch (error: any) {
+        alert('Error deleting wishlist item: ' + (error.message || 'Unknown error'));
+      }
     }
   };
 
-  const getPriorityColor = (priority: 'high' | 'medium' | 'low') => {
-    switch (priority) {
-      case 'high':
-        return 'text-red-400';
-      case 'medium':
-        return 'text-yellow-400';
-      case 'low':
-        return 'text-green-400';
-    }
-  };
 
-  const sortedItems = [...items].sort((a, b) => {
-    const priorityOrder = { high: 3, medium: 2, low: 1 };
-    return priorityOrder[b.priority] - priorityOrder[a.priority];
-  });
+  if (loading) {
+    return (
+      <div className="bg-slate-800 rounded-lg p-6 shadow-lg text-center">
+        <p className="text-gray-400">Loading wishlist...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-slate-800 rounded-lg p-6 shadow-lg">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-          <Heart className="w-6 h-6 text-primary-400" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+        <h2 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2">
+          <Heart className="w-5 h-5 sm:w-6 sm:h-6 text-primary-400" />
           Places to Visit
         </h2>
         <button
           onClick={() => handleOpenModal()}
-          className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors flex items-center gap-2"
+          className="px-3 py-1.5 sm:px-4 sm:py-2 text-sm sm:text-base bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors flex items-center gap-1.5 sm:gap-2 self-start sm:self-auto"
         >
-          <Plus className="w-4 h-4" />
+          <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           Add Place
         </button>
       </div>
@@ -115,46 +110,42 @@ export default function Wishlist() {
         </div>
       ) : (
         <div className="space-y-4">
-          {sortedItems.map((item) => (
+          {items.map((item) => (
             <div
               key={item.id}
               className="bg-slate-700 rounded-lg p-4 hover:bg-slate-650 transition-colors"
             >
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-2">
-                    <h3 className="text-xl font-semibold text-white">{item.name}</h3>
-                    <Star className={`w-4 h-4 ${getPriorityColor(item.priority)}`} />
-                    <span className={`text-xs px-2 py-1 rounded ${getPriorityColor(item.priority)} bg-opacity-20`}>
-                      {item.priority.toUpperCase()}
-                    </span>
-                  </div>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-lg sm:text-xl font-semibold text-white mb-2">{item.name}</h3>
                   <div className="space-y-1 text-sm text-gray-300">
                     <div className="flex items-center gap-2">
-                      <MapPin className="w-4 h-4" />
-                      <span>{item.location}</span>
+                      <MapPin className="w-4 h-4 flex-shrink-0" />
+                      <span className="truncate">{item.location}</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <DollarSign className="w-4 h-4" />
-                      <span>Estimated: ${item.estimatedCost.toLocaleString()}</span>
+                      <DollarSign className="w-4 h-4 flex-shrink-0" />
+                      <span>${item.estimatedCost.toLocaleString()}</span>
                     </div>
                     {item.notes && (
                       <p className="text-gray-400 mt-2">{item.notes}</p>
                     )}
                   </div>
                 </div>
-                <div className="flex gap-2 ml-4">
+                <div className="flex flex-col sm:flex-row gap-1 sm:gap-2 flex-shrink-0">
                   <button
                     onClick={() => handleOpenModal(item)}
                     className="p-2 text-primary-400 hover:bg-slate-600 rounded transition-colors"
+                    title="Edit"
                   >
-                    <Edit2 className="w-4 h-4" />
+                    <Edit2 className="w-5 h-5" />
                   </button>
                   <button
                     onClick={() => handleDelete(item.id)}
                     className="p-2 text-red-400 hover:bg-slate-600 rounded transition-colors"
+                    title="Delete"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="w-5 h-5" />
                   </button>
                 </div>
               </div>
@@ -166,9 +157,17 @@ export default function Wishlist() {
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-slate-800 rounded-lg p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
-            <h3 className="text-2xl font-bold text-white mb-4">
-              {editingItem ? 'Edit Wishlist Item' : 'Add to Wishlist'}
-            </h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-2xl font-bold text-white">
+                {editingItem ? 'Edit Wishlist Item' : 'Add to Wishlist'}
+              </h3>
+              <button
+                onClick={handleCloseModal}
+                className="p-2 text-gray-400 hover:text-white hover:bg-slate-700 rounded transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -194,34 +193,18 @@ export default function Wishlist() {
                   required
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Estimated Cost ($)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={formData.estimatedCost}
-                    onChange={(e) => setFormData({ ...formData, estimatedCost: e.target.value })}
-                    className="w-full px-4 py-2 bg-slate-700 text-white rounded-lg border border-slate-600 focus:border-primary-500 focus:outline-none"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Priority
-                  </label>
-                  <select
-                    value={formData.priority}
-                    onChange={(e) => setFormData({ ...formData, priority: e.target.value as 'high' | 'medium' | 'low' })}
-                    className="w-full px-4 py-2 bg-slate-700 text-white rounded-lg border border-slate-600 focus:border-primary-500 focus:outline-none"
-                  >
-                    <option value="high">High</option>
-                    <option value="medium">Medium</option>
-                    <option value="low">Low</option>
-                  </select>
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Estimated Cost ($)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={formData.estimatedCost}
+                  onChange={(e) => setFormData({ ...formData, estimatedCost: e.target.value })}
+                  className="w-full px-4 py-2 bg-slate-700 text-white rounded-lg border border-slate-600 focus:border-primary-500 focus:outline-none"
+                  required
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
